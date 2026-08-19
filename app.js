@@ -1,8 +1,5 @@
 const TMDB_BEARER_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJlZGIxNGRjZDE2MzJkOWExNWJiNDc4ODc1NDA5ZWZhNyIsIm5iZiI6MTc3NTMxOTAxNC4wMjQ5OTk5LCJzdWIiOiI2OWQxMzdlNmVkZDFiNDhmYTI0ZDJiODkiLCJzY29wZXMiOlsiYXBpX3JlYWQiXSwidmVyc2lvbiI6MX0.V09fRNSqQH1J8ilYIQ2SP_XUbCh32kMZWg_nW5z9dkw";
 
-// ---------------------------------------------------------------------------
-// "Banco de dados" local, usando localStorage no lugar do Supabase.
-// ---------------------------------------------------------------------------
 const STORAGE_KEY = "grupoDoCinema.movies";
 
 const localDb = {
