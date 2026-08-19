@@ -1,8 +1,70 @@
-const SUPABASE_URL = "https://xtmtpcvhyzingglsjdku.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh0bXRwY3ZoeXppbmdnbHNqZGt1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2NzA4NjUsImV4cCI6MjA5MTI0Njg2NX0.X08UNlRPFOeI6JWM-XQlJaushroAVVPM5ojg88Pvbv4";
 const TMDB_BEARER_TOKEN = "eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiJlZGIxNGRjZDE2MzJkOWExNWJiNDc4ODc1NDA5ZWZhNyIsIm5iZiI6MTc3NTMxOTAxNC4wMjQ5OTk5LCJzdWIiOiI2OWQxMzdlNmVkZDFiNDhmYTI0ZDJiODkiLCJzY29wZXMiOlsiYXBpX3JlYWQiXSwidmVyc2lvbiI6MX0.V09fRNSqQH1J8ilYIQ2SP_XUbCh32kMZWg_nW5z9dkw";
 
-const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// ---------------------------------------------------------------------------
+// "Banco de dados" local, usando localStorage no lugar do Supabase.
+// ---------------------------------------------------------------------------
+const STORAGE_KEY = "grupoDoCinema.movies";
+
+const localDb = {
+  _read() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+      console.error("Erro ao ler dados locais:", error);
+      return [];
+    }
+  },
+
+  _write(movies) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(movies));
+      return true;
+    } catch (error) {
+      console.error("Erro ao salvar dados locais:", error);
+      return false;
+    }
+  },
+
+  _nextId(movies) {
+    return movies.reduce((max, movie) => Math.max(max, Number(movie.id) || 0), 0) + 1;
+  },
+
+  list() {
+    const movies = this._read();
+    movies.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    return movies;
+  },
+
+  insert(movieData) {
+    const movies = this._read();
+    const newMovie = {
+      id: this._nextId(movies),
+      created_at: new Date().toISOString(),
+      ...movieData
+    };
+    movies.push(newMovie);
+    this._write(movies);
+    return newMovie;
+  },
+
+  update(id, patch) {
+    const movies = this._read();
+    const index = movies.findIndex((movie) => movie.id === id);
+    if (index === -1) return null;
+    movies[index] = { ...movies[index], ...patch };
+    this._write(movies);
+    return movies[index];
+  },
+
+  remove(id) {
+    const movies = this._read();
+    const filtered = movies.filter((movie) => movie.id !== id);
+    this._write(filtered);
+    return true;
+  }
+};
 
 const sortSelect = document.getElementById("sortSelect");
 const watchedGrid = document.getElementById("watchedGrid");
@@ -241,19 +303,8 @@ function renderTierlist() {
     : `<p class="empty-state">Todos os filmes já foram rankeados.</p>`;
 }
 
-async function fetchMovies() {
-  const { data, error } = await supabaseClient
-    .from("movies")
-    .select("*")
-    .order("created_at", { ascending: false });
-
-  if (error) {
-    console.error(error);
-    alert("Erro ao carregar filmes do Supabase.");
-    return;
-  }
-
-  moviesCache = Array.isArray(data) ? data : [];
+function fetchMovies() {
+  moviesCache = localDb.list();
   renderMovies();
   renderTierlist();
 }
@@ -289,55 +340,43 @@ function openMovieDetails(id) {
   openModal(movieDetailsModal);
 }
 
-async function setWatched(id, watched) {
-  const { error } = await supabaseClient
-    .from("movies")
-    .update({ watched: Boolean(watched) })
-    .eq("id", id);
+function setWatched(id, watched) {
+  const updated = localDb.update(id, { watched: Boolean(watched) });
 
-  if (error) {
-    console.error(error);
+  if (!updated) {
     alert("Erro ao atualizar filme.");
     return;
   }
 
-  await fetchMovies();
+  fetchMovies();
   openMovieDetails(id);
 }
 
-async function toggleWatched(event, id) {
+function toggleWatched(event, id) {
   event.stopPropagation();
 
   const movie = moviesCache.find((item) => item.id === id);
   if (!movie) return;
 
-  const { error } = await supabaseClient
-    .from("movies")
-    .update({ watched: !movie.watched })
-    .eq("id", id);
+  const updated = localDb.update(id, { watched: !movie.watched });
 
-  if (error) {
-    console.error(error);
+  if (!updated) {
     alert("Erro ao atualizar filme.");
     return;
   }
 
-  await fetchMovies();
+  fetchMovies();
 }
 
-async function setTier(id, tier) {
-  const { error } = await supabaseClient
-    .from("movies")
-    .update({ tier: tier || null })
-    .eq("id", id);
+function setTier(id, tier) {
+  const updated = localDb.update(id, { tier: tier || null });
 
-  if (error) {
-    console.error(error);
+  if (!updated) {
     alert("Erro ao atualizar tier.");
     return;
   }
 
-  await fetchMovies();
+  fetchMovies();
   openMovieDetails(id);
 }
 
@@ -350,22 +389,12 @@ function editMovie(id) {
   openModal(addMovieModal);
 }
 
-async function deleteMovie(id) {
+function deleteMovie(id) {
   const ok = window.confirm("Quer mesmo apagar esse filme?");
   if (!ok) return;
 
-  const { error } = await supabaseClient
-    .from("movies")
-    .delete()
-    .eq("id", id);
-
-  if (error) {
-    console.error(error);
-    alert("Erro ao apagar filme.");
-    return;
-  }
-
-  await fetchMovies();
+  localDb.remove(id);
+  fetchMovies();
   closeModal(movieDetailsModal);
 }
 
@@ -486,7 +515,7 @@ function clearDragState() {
   });
 }
 
-async function handleDropToTier(event) {
+function handleDropToTier(event) {
   event.preventDefault();
   event.currentTarget.classList.remove("drag-over");
   document.body.classList.remove("is-dragging");
@@ -497,26 +526,17 @@ async function handleDropToTier(event) {
   const movie = moviesCache.find((item) => item.id === movieId);
   if (!movie) return;
 
-  const oldTier = movie.tier;
-  movie.tier = tier;
-  renderTierlist();
-  renderMovies();
+  const updated = localDb.update(movieId, { tier });
 
-  const { error } = await supabaseClient
-    .from("movies")
-    .update({ tier })
-    .eq("id", movieId);
-
-  if (error) {
-    console.error(error);
-    movie.tier = oldTier;
-    renderTierlist();
-    renderMovies();
+  if (!updated) {
     alert("Erro ao mover filme.");
+    return;
   }
+
+  fetchMovies();
 }
 
-async function handleDropToPool(event) {
+function handleDropToPool(event) {
   event.preventDefault();
   event.currentTarget.classList.remove("drag-over");
   document.body.classList.remove("is-dragging");
@@ -526,26 +546,17 @@ async function handleDropToPool(event) {
   const movie = moviesCache.find((item) => item.id === movieId);
   if (!movie) return;
 
-  const oldTier = movie.tier;
-  movie.tier = null;
-  renderTierlist();
-  renderMovies();
+  const updated = localDb.update(movieId, { tier: null });
 
-  const { error } = await supabaseClient
-    .from("movies")
-    .update({ tier: null })
-    .eq("id", movieId);
-
-  if (error) {
-    console.error(error);
-    movie.tier = oldTier;
-    renderTierlist();
-    renderMovies();
+  if (!updated) {
     alert("Erro ao mover filme.");
+    return;
   }
+
+  fetchMovies();
 }
 
-movieForm.addEventListener("submit", async (event) => {
+movieForm.addEventListener("submit", (event) => {
   event.preventDefault();
 
   const title = document.getElementById("movieTitle").value.trim();
@@ -560,45 +571,31 @@ movieForm.addEventListener("submit", async (event) => {
   }
 
   if (editingMovieId) {
-    const { error } = await supabaseClient
-      .from("movies")
-      .update({
-        title,
-        year,
-        poster,
-        description,
-        tmdb_rating: tmdbRating
-      })
-      .eq("id", editingMovieId);
+    const updated = localDb.update(editingMovieId, {
+      title,
+      year,
+      poster,
+      description,
+      tmdb_rating: tmdbRating
+    });
 
-    if (error) {
-      console.error(error);
+    if (!updated) {
       alert("Erro ao editar filme.");
       return;
     }
   } else {
-    const { error } = await supabaseClient
-      .from("movies")
-      .insert([
-        {
-          title,
-          year,
-          poster,
-          description,
-          watched: false,
-          tier: null,
-          tmdb_rating: tmdbRating
-        }
-      ]);
-
-    if (error) {
-      console.error(error);
-      alert("Erro ao adicionar filme.");
-      return;
-    }
+    localDb.insert({
+      title,
+      year,
+      poster,
+      description,
+      watched: false,
+      tier: null,
+      tmdb_rating: tmdbRating
+    });
   }
 
-  await fetchMovies();
+  fetchMovies();
   resetMovieForm();
   closeModal(addMovieModal);
 });
